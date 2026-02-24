@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stories</title>
+  <link rel="stylesheet" href="CSS/stories.css">
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@4.5.0/fonts/remixicon.css" rel="stylesheet"/>
+</head>
+<body>
+  <header>
+    <div class="stories-header">
+      <h2>Stories</h2>
+    </div>
+  </header>
+
+  <main>
+    <!-- My Story Section -->
+    <div class="my-story-section">
+      <div class="my-story-circle" id="my-story-circle">
+        <img id="my-story-img" src="images/default-profile.png" alt="My Story">
+        <div class="add-story-icon">+</div>
+      </div>
+      <div class="my-story-info">
+        <h3>My Story</h3>
+        <p id="my-story-count">0 updates</p>
+      </div>
+    </div>
+
+    <!-- Recent Updates -->
+    <div class="updates-section">
+      <h3>Recent Updates</h3>
+      <div id="stories-list"></div>
+    </div>
+
+    <!-- Viewed Updates -->
+    <div class="viewed-section" id="viewed-section" style="display: none;">
+      <h3>Viewed</h3>
+      <div id="viewed-stories-list"></div>
+    </div>
+  </main>
+
+  <!-- Add Story Modal -->
+  <div id="story-modal" class="story-modal">
+    <div class="story-modal-content">
+      <div class="story-modal-header">
+        <h3>Add to Story</h3>
+        <button id="close-story-modal"><i class="ri-close-line"></i></button>
+      </div>
+      <div class="story-input-section">
+        <textarea id="story-text" placeholder="What's on your mind?" rows="4"></textarea>
+      </div>
+      <div class="story-preview" id="story-preview" style="display: none;">
+        <img id="story-image-preview" src="" alt="Preview">
+      </div>
+      <div class="story-options">
+        <button id="add-image-btn"><i class="ri-image-line"></i> Add Image</button>
+        <input type="file" id="story-image-input" accept="image/*" style="display: none;">
+      </div>
+      <div class="story-modal-footer">
+        <button id="share-story-btn" disabled>Share</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Story Viewer Modal -->
+  <div id="story-viewer" class="story-viewer">
+    <div class="story-viewer-content">
+      <div class="story-viewer-header">
+        <div class="story-viewer-user">
+          <img id="viewer-user-img" src="" alt="User">
+          <div>
+            <h4 id="viewer-user-name">User</h4>
+            <span id="viewer-story-time">Just now</span>
+          </div>
+        </div>
+        <button id="close-story-viewer"><i class="ri-close-line"></i></button>
+      </div>
+      <div class="story-viewer-body">
+        <img id="viewer-story-img" src="" alt="Story">
+        <div id="viewer-story-text" class="viewer-text"></div>
+      </div>
+<div class="story-viewer-footer">
+        <input type="text" id="story-reply-input" placeholder="Reply...">
+        <button id="send-story-reply"><i class="ri-send-plane-fill"></i></button>
+      </div>
+      <div class="story-views-section" id="story-views-section" style="display: none;">
+        <button id="view-views-btn" class="view-views-btn">
+          <i class="ri-eye-line"></i> <span id="views-count">0</span> views
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Views List Slide Up Panel -->
+  <div id="views-list-panel" class="views-list-panel">
+    <div class="views-list-header">
+      <h3>Views</h3>
+      <button id="close-views-panel"><i class="ri-close-line"></i></button>
+    </div>
+    <div id="views-list-content" class="views-list-content"></div>
+  </div>
+
+  <!-- Bottom Navigation -->
+  <nav class="bottom-nav">
+    <div><a href="chats.html"><button><i class="ri-chat-3-line"></i></button></a></div>
+    <div><a href="calls.html"><button><i class="ri-phone-line"></i></button></a></div>
+    <div><a href="stories.html"><button style="color: #667eea;"><i class="ri-meteor-line"></i></button></a></div>
+    <div><a href="contacts.html"><button><i class="ri-group-line"></i></button></a></div>
+    <div><a href="settings.html"><button><i class="ri-settings-5-line"></i></button></a></div>
+  </nav>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+    import { getFirestore, doc, getDoc, collection, addDoc, updateDoc, onSnapshot, serverTimestamp, getDocs, arrayUnion } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+    import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBX74wlrm96EE9zO7QQYSI21xGp_eO40IE",
+      authDomain: "posts-c532d.firebaseapp.com",
+      projectId: "posts-c532d",
+      storageBucket: "posts-c532d.appspot.com",
+      messagingSenderId: "742123859279",
+      appId: "1:742123859279:web:13ba1af7ac53774a1e693a"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const storage = getStorage(app);
+
+    let currentUser = null;
+
+    // DOM Elements
+    const storiesList = document.getElementById("stories-list");
+    const viewedStoriesList = document.getElementById("viewed-stories-list");
+    const storyModal = document.getElementById("story-modal");
+    const storyViewer = document.getElementById("story-viewer");
+    const storyText = document.getElementById("story-text");
+    const shareStoryBtn = document.getElementById("share-story-btn");
+    const storyImageInput = document.getElementById("story-image-input");
+    const storyImagePreview = document.getElementById("story-image-preview");
+    const storyPreview = document.getElementById("story-preview");
+
+// Store my stories for viewing
+    let myStoriesData = [];
+
+    // Open story modal OR view my story
+    document.getElementById("my-story-circle").addEventListener("click", async () => {
+      // Reload stories to get latest data
+      await loadStories();
+      
+      if (myStoriesData.length > 0) {
+        // View my own story
+        viewStory(myStoriesData[0]);
+      } else {
+        // No stories, open create modal
+        storyModal.style.display = "flex";
+      }
+    });
+
+    // Close story modal
+    document.getElementById("close-story-modal").addEventListener("click", () => {
+      storyModal.style.display = "none";
+      clearStoryForm();
+    });
+
+    // Close story viewer
+    document.getElementById("close-story-viewer").addEventListener("click", () => {
+      storyViewer.style.display = "none";
+    });
+
+    // Image upload
+    document.getElementById("add-image-btn").addEventListener("click", () => {
+      storyImageInput.click();
+    });
+
+    storyImageInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          storyImagePreview.src = e.target.result;
+          storyPreview.style.display = "block";
+          shareStoryBtn.disabled = false;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    // Enable share button when text is entered
+    storyText.addEventListener("input", () => {
+      shareStoryBtn.disabled = storyText.value.trim() === "" && !storyImageInput.files[0];
+    });
+
+    // Clear form
+    function clearStoryForm() {
+      storyText.value = "";
+      storyImageInput.value = "";
+      storyPreview.style.display = "none";
+      shareStoryBtn.disabled = true;
+    }
+
+    // Share story
+    shareStoryBtn.addEventListener("click", async () => {
+      if (!currentUser) return;
+
+      const text = storyText.value.trim();
+      const file = storyImageInput.files[0];
+      
+      try {
+        let imageUrl = null;
+
+        if (file) {
+          const storageRef = ref(storage, "stories/" + currentUser.uid + "/" + Date.now() + "_" + file.name);
+          const snapshot = await uploadBytes(storageRef, file);
+          imageUrl = await getDownloadURL(snapshot.ref);
+        }
+
+        // Calculate expiry time (24 hours from now)
+        const expiryTime = Date.now() + (24 * 60 * 60 * 1000);
+
+        await addDoc(collection(db, "stories"), {
+          userId: currentUser.uid,
+          userName: currentUser.firstName + " " + currentUser.lastName,
+          userImage: currentUser.profileImageUrl || "images/default-profile.png",
+          text: text,
+          imageUrl: imageUrl,
+          timestamp: serverTimestamp(),
+          expiryTime: expiryTime,
+          views: []
+        });
+
+        storyModal.style.display = "none";
+        clearStoryForm();
+        loadStories();
+      } catch (error) {
+        console.error("Error sharing story:", error);
+        alert("Error sharing story");
+      }
+    });
+
+    // Load and display stories
+    async function loadStories() {
+      try {
+        const snapshot = await getDocs(collection(db, "stories"));
+        const now = Date.now();
+        
+        let allStories = [];
+        let myStories = [];
+        let otherStories = [];
+        let viewedStories = [];
+
+        snapshot.forEach(doc => {
+          const story = doc.data();
+          story.id = doc.id;
+          
+          // Skip expired stories
+          if (story.expiryTime && story.expiryTime < now) {
+            // Delete expired story
+            // updateDoc(doc(db, "stories", doc.id), { deleted: true });
+            return;
+          }
+
+if (story.userId === currentUser?.uid) {
+            myStories.push(story);
+          } else {
+            // Check if viewed (now views is an array of objects)
+            const isViewed = story.views && story.views.some(v => v.userId === currentUser?.uid);
+            if (isViewed) {
+              viewedStories.push(story);
+            } else {
+              otherStories.push(story);
+            }
+          }
+        });
+
+        // Sort by timestamp
+        myStories.sort((a, b) => b.timestamp?.toDate?.()?.getTime() || 0 - (a.timestamp?.toDate?.()?.getTime() || 0));
+        otherStories.sort((a, b) => b.timestamp?.toDate?.()?.getTime() || 0 - (a.timestamp?.toDate?.()?.getTime() || 0));
+        viewedStories.sort((a, b) => b.timestamp?.toDate?.()?.getTime() || 0 - (a.timestamp?.toDate?.()?.getTime() || 0));
+
+        // Update my story
+        const myStoryCircle = document.getElementById("my-story-circle");
+        const myStoryImg = document.getElementById("my-story-img");
+        const myStoryCount = document.getElementById("my-story-count");
+        
+if (myStories.length > 0) {
+          myStoryImg.src = myStories[0].imageUrl || myStories[0].userImage || "images/default-profile.png";
+          myStoryCircle.style.border = "none";
+          myStoryCount.textContent = myStories.length + " update" + (myStories.length > 1 ? "s" : "");
+          // Store my stories for viewing
+          myStoriesData = [...myStories];
+        } else {
+          const userDoc = await getDoc(doc(db, "users", currentUser.uid));
+          if (userDoc.exists()) {
+            myStoryImg.src = userDoc.data().profileImageUrl || "images/default-profile.png";
+          }
+          myStoryCircle.style.border = "2px dashed #ccc";
+          myStoryCount.textContent = "0 updates";
+        }
+
+        // Render other stories
+        renderStories(otherStories, storiesList);
+        
+        // Render viewed stories
+        if (viewedStories.length > 0) {
+          document.getElementById("viewed-section").style.display = "block";
+          renderStories(viewedStories, viewedStoriesList);
+        } else {
+          document.getElementById("viewed-section").style.display = "none";
+        }
+
+      } catch (error) {
+        console.error("Error loading stories:", error);
+      }
+    }
+
+    // Render stories
+    function renderStories(stories, container) {
+      container.innerHTML = "";
+      
+      if (stories.length === 0) {
+        container.innerHTML = "<p class='no-stories'>No stories yet</p>";
+        return;
+      }
+
+      // Group stories by user
+      const groupedStories = {};
+      stories.forEach(story => {
+        if (!groupedStories[story.userId]) {
+          groupedStories[story.userId] = [];
+        }
+        groupedStories[story.userId].push(story);
+      });
+
+      Object.values(groupedStories).forEach(userStories => {
+        const story = userStories[0]; // Get latest story
+        const storyDiv = document.createElement("div");
+        storyDiv.className = "story-item";
+        
+const timeAgo = getTimeAgo(story.timestamp);
+        const isViewed = story.views && story.views.some(v => v.userId === currentUser?.uid);
+        
+        storyDiv.innerHTML = `
+          <div class="story-ring ${isViewed ? '' : 'unviewed'}">
+            <img src="${story.userImage || 'images/default-profile.png'}" alt="${story.userName}">
+          </div>
+          <div class="story-info">
+            <h4>${story.userName}</h4>
+            <p>${timeAgo}</p>
+          </div>
+        `;
+        
+        storyDiv.addEventListener("click", () => viewStory(story));
+        container.appendChild(storyDiv);
+      });
+    }
+
+// Current story being viewed
+    let currentStory = null;
+
+    // View story
+    async function viewStory(story) {
+      currentStory = story;
+      document.getElementById("viewer-user-img").src = story.userImage || "images/default-profile.png";
+      document.getElementById("viewer-user-name").textContent = story.userName;
+      document.getElementById("viewer-story-time").textContent = getTimeAgo(story.timestamp);
+      
+      if (story.imageUrl) {
+        document.getElementById("viewer-story-img").src = story.imageUrl;
+        document.getElementById("viewer-story-img").style.display = "block";
+      } else {
+        document.getElementById("viewer-story-img").style.display = "none";
+      }
+      
+      document.getElementById("viewer-story-text").textContent = story.text || "";
+      
+      storyViewer.style.display = "flex";
+
+      // Show/hide views button based on story owner
+      const viewsSection = document.getElementById("story-views-section");
+      if (story.userId === currentUser?.uid) {
+        viewsSection.style.display = "block";
+        document.getElementById("views-count").textContent = story.views ? story.views.length : "0";
+      } else {
+        viewsSection.style.display = "none";
+      }
+
+      // Mark as viewed (only if not own story)
+      if (story.userId !== currentUser?.uid) {
+        if (!story.views || !story.views.some(v => v.userId === currentUser?.uid)) {
+          const newView = {
+            userId: currentUser.uid,
+            userName: currentUser.firstName + " " + currentUser.lastName,
+            userImage: currentUser.profileImageUrl || "images/default-profile.png",
+            viewedAt: Date.now()
+          };
+          const newViews = story.views ? [...story.views, newView] : [newView];
+          await updateDoc(doc(db, "stories", story.id), { views: newViews });
+        }
+      }
+    }
+
+    // View story views
+    document.getElementById("view-views-btn").addEventListener("click", async () => {
+      if (!currentStory) return;
+      
+      const viewsListPanel = document.getElementById("views-list-panel");
+      const viewsListContent = document.getElementById("views-list-content");
+      
+      viewsListContent.innerHTML = "";
+      
+      if (currentStory.views && currentStory.views.length > 0) {
+        // Sort by viewed time (newest first)
+        const sortedViews = [...currentStory.views].sort((a, b) => (b.viewedAt || 0) - (a.viewedAt || 0));
+        
+        sortedViews.forEach(view => {
+          const viewDiv = document.createElement("div");
+          viewDiv.className = "view-item";
+          viewDiv.innerHTML = `
+            <img src="${view.userImage || 'images/default-profile.png'}" alt="${view.userName}">
+            <div class="view-info">
+              <h4>${view.userName}</h4>
+              <p>${getViewTimeAgo(view.viewedAt)}</p>
+            </div>
+          `;
+          viewsListContent.appendChild(viewDiv);
+        });
+      } else {
+        viewsListContent.innerHTML = "<p class='no-views'>No views yet</p>";
+      }
+      
+      viewsListPanel.classList.add("show");
+    });
+
+    // Close views panel
+    document.getElementById("close-views-panel").addEventListener("click", () => {
+      document.getElementById("views-list-panel").classList.remove("show");
+    });
+
+    // Get view time ago
+    function getViewTimeAgo(timestamp) {
+      if (!timestamp) return "Just now";
+      
+      const now = Date.now();
+      const diff = now - timestamp;
+      
+      const minutes = Math.floor(diff / 60000);
+      const hours = Math.floor(diff / 3600000);
+      
+      if (minutes < 1) return "Just now";
+      if (minutes < 60) return minutes + "m ago";
+      if (hours < 24) return hours + "h ago";
+      return "Yesterday";
+    }
+
+    // Time ago helper
+    function getTimeAgo(timestamp) {
+      if (!timestamp) return "Just now";
+      
+      const now = Date.now();
+      const time = timestamp.toDate ? timestamp.toDate().getTime() : new Date(timestamp).getTime();
+      const diff = now - time;
+      
+      const minutes = Math.floor(diff / 60000);
+      const hours = Math.floor(diff / 3600000);
+      const days = Math.floor(diff / 86400000);
+      
+      if (minutes < 1) return "Just now";
+      if (minutes < 60) return minutes + "m ago";
+      if (hours < 24) return hours + "h ago";
+      return days + "d ago";
+    }
+
+    // Real-time listener for stories
+    function setupStoriesListener() {
+      onSnapshot(collection(db, "stories"), () => {
+        loadStories();
+      });
+    }
+
+    // Initialize
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        currentUser = user;
+        
+        // Get user profile data
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          user.firstName = userData.firstName || "";
+          user.lastName = userData.lastName || "";
+          user.profileImageUrl = userData.profileImageUrl || "images/default-profile.png";
+        }
+        
+        loadStories();
+        setupStoriesListener();
+      } else {
+        window.location.href = "auth.html";
+      }
+    });
+  </script>
+</body>
+</html>

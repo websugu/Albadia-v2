@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chats</title>
+  <link rel="stylesheet" href="CSS/chats.css">
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@4.5.0/fonts/remixicon.css" rel="stylesheet"/>
+  <style>
+    /* Keep minimal inline styles for dynamic elements */
+  </style>
+</head>
+<body>
+  <header>
+    <div class="chat-container">
+      <div class="chats-nav">
+          <div><h2>Chats</h2></div>
+          <div class="nav-links-1">
+              <div><button><i class="ri-lock-line"></i></button></div>
+              <div><button><i class="ri-search-line"></i></button></div>
+              <div><button><i class="ri-more-2-fill"></i></button></div>
+          </div>
+      </div>
+   </div>
+   <div class="search-container">
+     <input type="text" id="search-input" class="search-input" placeholder="Search chats...">
+   </div>
+<div class="nav-links-2">
+        <div><a href="chats.html"><button><i class="ri-chat-3-line"></i></button></a></div>
+        <div><a href="calls.html"><button><i class="ri-phone-line"></i></button></a></div>
+        <div><a href="stories.html"><button><i class="ri-meteor-line"></i></button></a></div>
+        <div><a href="contacts.html"><button><i class="ri-group-line"></i></button></a></div>
+        <div><a href="settings.html"><button><i class="ri-settings-5-line"></i></button></a></div>
+    </div>
+  </header>
+  <main>
+    <div id="chats-list"></div>
+  </main>
+  <script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+import { getFirestore, doc, getDoc, collection, getDocs, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBX74wlrm96EE9zO7QQYSI21xGp_eO40IE",
+  authDomain: "posts-c532d.firebaseapp.com",
+  projectId: "posts-c532d",
+  storageBucket: "posts-c532d.appspot.com",
+  messagingSenderId: "742123859279",
+  appId: "1:742123859279:web:13ba1af7ac53774a1e693a"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+let currentUser = null;
+let allChats = [];
+
+const chatsList = document.getElementById("chats-list");
+const searchInput = document.getElementById("search-input");
+
+searchInput.addEventListener("input", function(e) {
+  filterChats(e.target.value.toLowerCase().trim());
+});
+
+function filterChats(searchTerm) {
+  if (!searchTerm) { renderChats(allChats); return; }
+  const filtered = allChats.filter(chat => 
+    (chat.contactName || "").toLowerCase().includes(searchTerm) ||
+    (chat.lastMessage || "").toLowerCase().includes(searchTerm)
+  );
+  renderChats(filtered);
+}
+
+function formatTime(timestamp) {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+  
+  if (diffDays === 0) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } else if (diffDays === 1) {
+    return "Yesterday";
+  } else if (diffDays < 7) {
+    return date.toLocaleDateString([], { weekday: 'short' });
+  } else {
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+}
+
+function renderChats(chats) {
+  chatsList.innerHTML = "";
+  if (chats.length === 0) {
+    chatsList.innerHTML = '<div style="text-align: center; padding: 50px; color: #999;">No chats yet</div>';
+    return;
+  }
+  
+  // Sort by latest message timestamp (newest first)
+  chats.sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
+  
+  // Remove duplicates by contactId before rendering
+  const uniqueChats = [];
+  const seenIds = new Set();
+  for (const chat of chats) {
+    if (!seenIds.has(chat.contactId)) {
+      seenIds.add(chat.contactId);
+      uniqueChats.push(chat);
+    }
+  }
+  
+  for (const chat of uniqueChats) {
+    const chatDiv = document.createElement("div");
+    chatDiv.className = "chat";
+    
+    let badgeHtml = "";
+    if (chat.hasUnread) {
+      badgeHtml = '<span class="unread-badge">New</span>';
+    }
+    
+    chatDiv.innerHTML = 
+      "<div class='chat-users'>" +
+        "<div class='open-chat-btn' data-contact='" + chat.contactId + "'>" +
+          "<div class='chat-users-content'>" +
+              "<div><img src='" + (chat.contactImage || "images/default-profile.png") + "' style='border-radius: 50%;width: 63px;height: 63px;'></div>" +
+              "<div class='user-name'>" +
+                  "<div><h3>" + chat.contactName + "</h3></div>" +
+                  "<div><p>" + chat.lastMessage + "</p></div>" +
+              "</div>" +
+              "<div class='chat-info'>" +
+          "<div class='chat-meta'>" +
+            "<span class='chat-time'>" + formatTime(chat.lastMessageTime) + "</span>" +
+            badgeHtml +
+          "</div>" +
+        "</div>" +
+        "</div>" +
+        
+      "</div>";
+    
+chatDiv.querySelector(".open-chat-btn").addEventListener("click", () => {
+      if (chat.isGroup) {
+        window.location.href = "chatting.html?groupId=" + chat.chatId;
+      } else {
+        window.location.href = "chatting.html?contactId=" + chat.contactId;
+      }
+    });
+    chatsList.appendChild(chatDiv);
+  }
+}
+
+async function displayChats() {
+  const userDoc = await getDoc(doc(db, "users", currentUser.uid));
+  if (!userDoc.exists()) return;
+  
+  const userData = userDoc.data();
+  const chats = userData.chats || [];
+  const groupChats = userData.groupChats || [];
+  allChats = [];
+  
+  if (chats.length === 0 && groupChats.length === 0) {
+    chatsList.innerHTML = '<button id="add-contact-btn" style="padding: 10px 20px; font-size: 16px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; margin: 20px auto; display: block;">Add Contact</button>';
+    document.getElementById("add-contact-btn").addEventListener("click", () => window.location.href = "contacts.html");
+    return;
+  }
+
+  // Get all messages once
+  const allMessages = await getDocs(collection(db, "messages"));
+
+  // Process individual chats
+  // Deduplicate chats array by contactId before processing
+  const uniqueChats = [];
+  const seenContactIds = new Set();
+  for (const chat of chats) {
+    if (!seenContactIds.has(chat.contactId)) {
+      seenContactIds.add(chat.contactId);
+      uniqueChats.push(chat);
+    }
+  }
+
+  for (const chat of uniqueChats) {
+    const contactDoc = await getDoc(doc(db, "users", chat.contactId));
+    if (!contactDoc.exists()) continue;
+    
+    const contactData = contactDoc.data();
+    
+    // Find latest message between current user and this contact
+    let lastMessageText = "No messages yet";
+    let latestTime = 0;
+    let latestMsg = null;
+    let hasUnread = false;
+    
+    allMessages.forEach(msgDoc => {
+      const msgData = msgDoc.data();
+      const isBetweenUsers = 
+        (msgData.senderId === currentUser.uid && msgData.receiverId === chat.contactId) ||
+        (msgData.senderId === chat.contactId && msgData.receiverId === currentUser.uid);
+      
+      if (isBetweenUsers) {
+        const msgTime = msgData.timestamp ? (msgData.timestamp.toDate ? msgData.timestamp.toDate().getTime() : new Date(msgData.timestamp).getTime()) : 0;
+        
+        // Check if latest message from contact is unread
+        if (msgData.senderId === chat.contactId && !msgData.read) {
+          if (msgTime > latestTime) {
+            latestTime = msgTime;
+            latestMsg = msgData;
+            hasUnread = true;
+          }
+        }
+        
+        // Also track latest message regardless of read status
+        if (msgTime > latestTime) {
+          latestTime = msgTime;
+          latestMsg = msgData;
+        }
+      }
+    });
+    
+    if (latestMsg) {
+      if (latestMsg.type === "text") lastMessageText = latestMsg.text;
+      else if (latestMsg.type === "image") lastMessageText = "📷 Photo";
+      else if (latestMsg.type === "audio") lastMessageText = "🎤 Voice message";
+      
+      // Check if the latest message from contact is unread
+      if (latestMsg.senderId === chat.contactId && !latestMsg.read) {
+        hasUnread = true;
+      }
+    }
+
+    allChats.push({
+      chatId: chat.chatId,
+      contactId: chat.contactId,
+      contactName: contactData.firstName + " " + contactData.lastName,
+      contactImage: contactData.profileImageUrl,
+      lastMessage: lastMessageText,
+      lastMessageTime: latestTime,
+      hasUnread: hasUnread,
+      isGroup: false
+    });
+  }
+
+  // Process group chats
+  for (const groupId of groupChats) {
+    const groupDoc = await getDoc(doc(db, "groups", groupId));
+    if (!groupDoc.exists()) continue;
+    
+    const groupData = groupDoc.data();
+    
+    // Find latest message for this group
+    let lastMessageText = "No messages yet";
+    let latestTime = 0;
+    let latestMsg = null;
+    let hasUnread = false;
+    
+    allMessages.forEach(msgDoc => {
+      const msgData = msgDoc.data();
+      
+      // Check if message is for this group
+      if (msgData.groupId === groupId) {
+        const msgTime = msgData.timestamp ? (msgData.timestamp.toDate ? msgData.timestamp.toDate().getTime() : new Date(msgData.timestamp).getTime()) : 0;
+        
+        // Check if latest message from other members is unread
+        if (msgData.senderId !== currentUser.uid && !msgData.read) {
+          if (msgTime > latestTime) {
+            latestTime = msgTime;
+            latestMsg = msgData;
+            hasUnread = true;
+          }
+        }
+        
+        // Also track latest message regardless of read status
+        if (msgTime > latestTime) {
+          latestTime = msgTime;
+          latestMsg = msgData;
+        }
+      }
+    });
+    
+    if (latestMsg) {
+      if (latestMsg.type === "text") {
+        lastMessageText = latestMsg.senderName + ": " + latestMsg.text;
+      } else if (latestMsg.type === "image") {
+        lastMessageText = latestMsg.senderName + ": 📷 Photo";
+      } else if (latestMsg.type === "audio") {
+        lastMessageText = latestMsg.senderName + ": 🎤 Voice message";
+      }
+      
+      // Check if latest message is unread
+      if (latestMsg.senderId !== currentUser.uid && !latestMsg.read) {
+        hasUnread = true;
+      }
+    }
+
+    allChats.push({
+      chatId: groupId,
+      contactId: groupId,
+      contactName: groupData.groupName,
+      contactImage: groupData.groupImageUrl,
+      lastMessage: lastMessageText,
+      lastMessageTime: latestTime,
+      hasUnread: hasUnread,
+      isGroup: true,
+      memberCount: groupData.memberIds ? groupData.memberIds.length : 0
+    });
+  }
+
+  renderChats(allChats);
+}
+
+// Real-time listener for chats updates
+function setupChatsListener() {
+  if (!currentUser) return;
+  
+  const userRef = doc(db, "users", currentUser.uid);
+  
+  // Use onSnapshot to listen for real-time updates
+  onSnapshot(userRef, function(snapshot) {
+    if (snapshot.exists()) {
+      // Re-fetch and display chats when data changes
+      displayChats();
+    }
+  });
+}
+
+onAuthStateChanged(auth, function(user) {
+  if (user) {
+    currentUser = user;
+    displayChats();
+    setupChatsListener(); // Set up real-time listener
+  } else {
+    window.location.href = "auth.html";
+  }
+});
+  </script>
+</body>
+</html>

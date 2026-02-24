@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calling</title>
+  <link rel="stylesheet" href="CSS/call.css">
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@4.5.0/fonts/remixicon.css" rel="stylesheet"/>
+  <style>
+    body { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    .calling-container { text-align: center; padding: 40px; }
+    .caller-image { width: 150px; height: 150px; border-radius: 50%; object-fit: cover; border: 4px solid #4a90e2; margin-bottom: 30px; }
+    .caller-name { font-size: 28px; margin-bottom: 10px; }
+    .calling-status { font-size: 18px; color: #888; margin-bottom: 50px; }
+    .call-actions { display: flex; justify-content: center; gap: 40px; }
+    .call-btn { width: 70px; height: 70px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: transform 0.2s; }
+    .call-btn:hover { transform: scale(1.1); }
+    .end-call-btn { background-color: #e74c3c; color: white; }
+    .mute-btn { background-color: #34495e; color: white; }
+    .call-btn i { font-size: 28px; }
+    .mute-btn.active { background-color: #e74c3c; }
+    #timer { font-size: 20px; margin-top: 20px; color: #4a90e2; }
+  </style>
+</head>
+<body>
+  <div class="calling-container">
+    <img id="contact-image" src="images/default-profile.png" alt="Contact Image" class="caller-image">
+    <h2 id="contact-name" class="caller-name">Calling...</h2>
+    <p id="call-status" class="calling-status">Connecting...</p>
+    <div class="call-actions">
+      <button id="mute-btn" class="call-btn mute-btn"><i class="ri-mic-line"></i></button>
+      <button id="end-call-btn" class="call-btn end-call-btn"><i class="ri-phone-line"></i></button>
+    </div>
+    <div id="timer"></div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+    import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, addDoc, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBX74wlrm96EE9zO7QQYSI21xGp_eO40IE",
+      authDomain: "posts-c532d.firebaseapp.com",
+      projectId: "posts-c532d",
+      storageBucket: "posts-c532d.appspot.com",
+      messagingSenderId: "742123859279",
+      appId: "1:742123859279:web:13ba1af7ac53774a1e693a"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    let currentUser = null;
+    let peerConnection = null;
+    let localStream = null;
+    let isMuted = false;
+    let callTimer = null;
+    let callDuration = 0;
+    let callStartTime = null;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const contactId = urlParams.get("contactId");
+    const chatId = urlParams.get("chatId");
+
+    if (!contactId) {
+      alert("No contact specified");
+      window.location.href = "chats.html";
+    }
+
+    const iceServers = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }] };
+
+    async function initCall() {
+      try {
+        const contactDoc = await getDoc(doc(db, "users", contactId));
+        if (contactDoc.exists()) {
+          const contactData = contactDoc.data();
+          document.getElementById("contact-name").textContent = contactData.firstName + " " + contactData.lastName;
+          document.getElementById("contact-image").src = contactData.profileImageUrl || "images/default-profile.png";
+        }
+
+        // Request microphone access
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        peerConnection = new RTCPeerConnection(iceServers);
+        
+        localStream.getTracks().forEach(function(track) {
+          peerConnection.addTrack(track, localStream);
+        });
+
+        peerConnection.onicecandidate = function(event) {
+          if (event.candidate) {
+            updateDoc(doc(db, "calls", chatId), {
+              ["candidates." + currentUser.uid]: { type: "candidate", candidate: event.candidate.toJSON(), timestamp: Date.now() }
+            });
+          }
+        };
+
+        peerConnection.ontrack = function(event) {
+          console.log("Received remote track:", event.track);
+          const remoteAudio = document.createElement("audio");
+          remoteAudio.id = "remote-audio";
+          remoteAudio.autoplay = true;
+          remoteAudio.playsInline = true;
+          remoteAudio.srcObject = event.streams[0];
+          document.body.appendChild(remoteAudio);
+          remoteAudio.play().catch(e => console.error("Error playing remote audio:", e));
+        };
+
+        peerConnection.onconnectionstatechange = function() {
+          console.log("Connection state:", peerConnection.connectionState);
+          if (peerConnection.connectionState === "connected") {
+            document.getElementById("call-status").textContent = "Connected";
+            callStartTime = Date.now();
+            startCallTimer();
+          } else if (peerConnection.connectionState === "disconnected" || peerConnection.connectionState === "failed") {
+            endCall();
+          }
+        };
+
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+
+        await setDoc(doc(db, "calls", chatId), {
+          offer: offer,
+          callerId: currentUser.uid,
+          calleeId: contactId,
+          status: "calling",
+          createdAt: Date.now()
+        });
+
+        const callDocRef = doc(db, "calls", chatId);
+        onSnapshot(callDocRef, async function(snapshot) {
+          const data = snapshot.data();
+          if (data && data.answer) {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+            document.getElementById("call-status").textContent = "Connected";
+          }
+          if (data && data.status === "rejected") {
+            document.getElementById("call-status").textContent = "Call rejected";
+            saveCallHistory("missed", 0);
+            setTimeout(endCall, 2000);
+          }
+          if (data && data.status === "ended") {
+            endCall();
+          }
+        });
+
+        onSnapshot(callDocRef, async function(snapshot) {
+          const data = snapshot.data();
+          if (data && data.calleeCandidates) {
+            for (const key in data.calleeCandidates) {
+              if (key !== currentUser.uid && data.calleeCandidates[key].candidate) {
+                try {
+                  await peerConnection.addIceCandidate(new RTCIceCandidate(data.calleeCandidates[key].candidate));
+                } catch (e) { console.error("Error adding ICE candidate:", e); }
+              }
+            }
+          }
+        });
+      } catch (error) {
+        console.error("Error initializing call:", error);
+        document.getElementById("call-status").textContent = "Failed to connect";
+        alert("Failed to start call: " + error.message);
+      }
+    }
+
+    function startCallTimer() {
+      callTimer = setInterval(function() {
+        callDuration++;
+        const minutes = Math.floor(callDuration / 60);
+        const seconds = callDuration % 60;
+        document.getElementById("timer").textContent = minutes + ":" + (seconds < 10 ? "0" : "") + seconds;
+      }, 1000);
+    }
+
+    async function saveCallHistory(status, duration) {
+      try {
+        // Save to caller's history
+        await addDoc(collection(db, "users", currentUser.uid, "callHistory"), {
+          contactId: contactId,
+          type: "audio",
+          direction: "outgoing",
+          status: status,
+          duration: duration,
+          timestamp: Date.now()
+        });
+
+        // Get contact info for the other user's history
+        const contactDoc = await getDoc(doc(db, "users", contactId));
+        if (contactDoc.exists()) {
+          // Save to callee's history
+          await addDoc(collection(db, "users", contactId, "callHistory"), {
+            contactId: currentUser.uid,
+            type: "audio",
+            direction: "incoming",
+            status: status,
+            duration: duration,
+            timestamp: Date.now()
+          });
+        }
+      } catch (error) {
+        console.error("Error saving call history:", error);
+      }
+    }
+
+    async function endCall() {
+      if (localStream) localStream.getTracks().forEach(function(track) { track.stop(); });
+      if (peerConnection) peerConnection.close();
+      if (callTimer) clearInterval(callTimer);
+
+      const duration = callStartTime ? Math.floor((Date.now() - callStartTime) / 1000) : 0;
+      const status = callStartTime ? "completed" : "missed";
+
+      // Save call history
+      await saveCallHistory(status, duration);
+
+      if (chatId && currentUser) {
+        try {
+          await updateDoc(doc(db, "calls", chatId), { status: "ended" });
+        } catch (e) { console.log("Error updating call status:", e); }
+      }
+      window.location.href = "chats.html";
+    }
+
+    function toggleMute() {
+      if (localStream) {
+        const audioTrack = localStream.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrack.enabled = !audioTrack.enabled;
+          isMuted = !audioTrack.enabled;
+          const muteBtn = document.getElementById("mute-btn");
+          if (isMuted) {
+            muteBtn.classList.add("active");
+            muteBtn.innerHTML = '<i class="ri-mic-off-line"></i>';
+          } else {
+            muteBtn.classList.remove("active");
+            muteBtn.innerHTML = '<i class="ri-mic-line"></i>';
+          }
+        }
+      }
+    }
+
+    document.getElementById("end-call-btn").addEventListener("click", endCall);
+    document.getElementById("mute-btn").addEventListener("click", toggleMute);
+
+    onAuthStateChanged(auth, async function(user) {
+      if (user) {
+        currentUser = user;
+        await initCall();
+      } else {
+        window.location.href = "auth.html";
+      }
+    });
+  </script>
+</body>
+</html>
